@@ -1,8 +1,9 @@
 package com.skyblueos.actors.database
 
-import akka.actor.Props
+import akka.actor.{ActorRef, Props}
 import com.skyblueos.actors.Routes
-import com.skyblueos.actors.models.{Chat, User, UserActor}
+import com.skyblueos.actors.Routes.executor
+import com.skyblueos.actors.models.{Chat, Group, User, UserActor}
 import com.skyblueos.actors.users.EncryptionManager
 import org.mongodb.scala.result
 import org.mongodb.scala.model.Filters.equal
@@ -117,5 +118,91 @@ object DatabaseUtils {
     val dbFuture = DatabaseConfig.collection.find(equal("email",email)).toFuture()
     val user = Await.result(dbFuture, 10.seconds).head
     EncryptionManager.verify(user, password)
+  }
+
+  /**
+   *
+   * @param chat instance to be saved into database
+   */
+  def saveGroupChat(chat: Chat): Unit = {
+
+    val group: Group = getGroup(chat.receiver)
+    if (Routes.system != null)
+      for (user <- group.participants) {
+        if (!chat.sender.equalsIgnoreCase(user))
+          Routes.system.scheduler.scheduleOnce(500 milliseconds) {
+            Routes.system.actorOf(Props[UserActor]).tell(Chat(chat.sender, user, chat.message + s"\nreceived on group ${group.groupName}"), ActorRef.noSender)
+          }
+      }
+
+    val future = DatabaseConfig.collectionForGroupChat.insertOne(chat).toFuture()
+    Await.result(future, 10.seconds)
+  }
+
+  /**
+   *
+   * @param group instance to be saved into database
+   */
+  def saveGroup(group: Group): Unit = {
+    val groupFuture = DatabaseConfig.collectionForGroup.insertOne(group).toFuture()
+    Await.result(groupFuture, 60.seconds)
+  }
+
+  /**
+   *
+   * @param group instance to be updated in the database
+   */
+  def updateGroup(group: Group): Unit = {
+    val fut = DatabaseConfig.collectionForGroup.updateOne(equal("groupId", group.groupId), set("participants", group.participants)).toFuture()
+    Await.result(fut, 60.seconds)
+  }
+
+  /**
+   *
+   * @param groupId of group being referred
+   * @param users   Seq of users to be added as participant
+   */
+  def addParticipants(groupId: String, users: Seq[String]): Unit = {
+
+    val group = getGroup(groupId)
+    var newGroup = Group(group.groupId, group.groupName, group.admin, group.participants)
+    if (group != null && users != null) {
+      var participantsArray = newGroup.participants
+      for (user <- users) {
+        if (doesAccountExist(user) && !group.participants.contains(user)) {
+          participantsArray = participantsArray :+ user
+        }
+      }
+
+      newGroup = Group(group.groupId, group.groupName, group.admin, participantsArray)
+
+      if (newGroup.participants != null && newGroup.participants.nonEmpty)
+        updateGroup(newGroup)
+    }
+  }
+
+  /**
+   *
+   * @param groupId associated with required group instance
+   * @return group instance
+   */
+  def getGroup(groupId: String): Group = {
+    val groupFuture = DatabaseConfig.collectionForGroup.find(equal("groupId", groupId)).toFuture()
+    val group = Await.result(groupFuture, 60.seconds)
+
+    if (group.nonEmpty)
+      group.head
+    else
+      null
+  }
+
+  def getMessages(email: String): Seq[Chat] ={
+    val chatFuture = DatabaseConfig.collectionForChat.find(equal("receiver", email)).toFuture()
+    Await.result(chatFuture, 60.seconds)
+  }
+
+  def getGroupMessages(groupId: String): Seq[Chat] ={
+    val groupChatFuture = DatabaseConfig.collectionForGroupChat.find(equal("receiver", groupId)).toFuture()
+    Await.result(groupChatFuture, 60.seconds)
   }
 }

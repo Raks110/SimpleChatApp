@@ -10,14 +10,14 @@ import com.nimbusds.jose.JWSObject
 import com.skyblueos.actors.database.DatabaseUtils
 import com.skyblueos.actors.jwt.TokenManager
 import com.skyblueos.actors.jwt.TokenManager.{getClaims, isTokenExpired, secretKey}
-import com.skyblueos.actors.models.{Chat, Communicate, CommunicateJsonSupport, LoginMessage, LoginMessageJsonFormat, LoginRequest, LoginRequestJsonSupport, OutputMessage, OutputMessageJsonFormat, User, UserActor, UserJsonSupport}
+import com.skyblueos.actors.models.{Chat, Communicate, CommunicateJsonSupport, LoginMessage, LoginMessageJsonFormat, LoginRequest, LoginRequestJsonSupport, OutputMessage, OutputMessageJsonFormat, SeqChat, SeqChatJsonSupport, User, UserActor, UserJsonSupport}
 import com.skyblueos.actors.users.{EncryptionManager, UserManager}
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.{Failure, Success}
 
-object Routes extends App with UserJsonSupport with LoginRequestJsonSupport with CommunicateJsonSupport with OutputMessageJsonFormat with LoginMessageJsonFormat {
+object Routes extends App with SeqChatJsonSupport with UserJsonSupport with LoginRequestJsonSupport with CommunicateJsonSupport with OutputMessageJsonFormat with LoginMessageJsonFormat {
 
   //server configuration variables
   val host = System.getenv("Host")
@@ -130,6 +130,50 @@ object Routes extends App with UserJsonSupport with LoginRequestJsonSupport with
                 }
                 else {
                   complete(OutputMessage(401, "User could not be verified!"))
+                }
+              }
+            },
+            path("chat"){
+              headerValueByName("Authorization") { tokenFromUser =>
+
+                val jwtToken = tokenFromUser.split(" ")
+                jwtToken(1) match {
+                  case token if isTokenExpired(token) =>
+                    complete(401 -> "Token has expired. Please login again.")
+
+                  case token if !JsonWebToken.validate(token, secretKey) =>
+                    complete(401 -> "Token is invalid. Please login again to generate a new one.")
+
+                  case _ =>
+                    val senderEmail = getClaims(jwtToken(1))("user").split("!")(0)
+                    complete(SeqChat(DatabaseUtils.getMessages(senderEmail)))
+                }
+              }
+            },
+            Directives.pathPrefix("group"){
+              path("chat"){
+                parameters('groupId.as[String]) { groupId =>
+                  headerValueByName("Authorization") { tokenFromUser =>
+
+                    val jwtToken = tokenFromUser.split(" ")
+                    jwtToken(1) match {
+                      case token if isTokenExpired(token) =>
+                        complete(401 -> "Token has expired. Please login again.")
+
+                      case token if !JsonWebToken.validate(token, secretKey) =>
+                        complete(401 -> "Token is invalid. Please login again to generate a new one.")
+
+                      case _ =>
+                        val senderEmail = getClaims(jwtToken(1))("user").split("!")(0)
+                        val group = DatabaseUtils.getGroup(groupId)
+                        if(group != null && group.participants.contains(senderEmail)) {
+                          complete(SeqChat(DatabaseUtils.getGroupMessages(groupId)))
+                        }
+                        else{
+                          complete(OutputMessage(404, "Group not found, or you are not a member of this group."))
+                        }
+                    }
+                  }
                 }
               }
             }

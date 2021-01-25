@@ -1,6 +1,6 @@
 package com.skyblueos.actors.database
 
-import com.skyblueos.actors.models.{Chat, User}
+import com.skyblueos.actors.models.{Chat, Group, User}
 import org.bson.codecs.configuration.{CodecProvider, CodecRegistries, CodecRegistry}
 import org.mongodb.scala.{MongoClient, MongoCollection, MongoDatabase}
 import org.mongodb.scala.MongoClient.DEFAULT_CODEC_REGISTRY
@@ -29,7 +29,21 @@ protected object DatabaseConfig {
     DEFAULT_CODEC_REGISTRY
   )
 
+  //for groups
+  val codecProviderForGroup: CodecProvider = Macros.createCodecProvider[Group]()
+  val codecRegistryForGroup: CodecRegistry = CodecRegistries.fromRegistries(
+    CodecRegistries.fromProviders(codecProviderForGroup),
+    DEFAULT_CODEC_REGISTRY
+  )
+
   val databaseForChat: MongoDatabase = mongoClient.getDatabase(databaseName).withCodecRegistry(codecRegistryForChat)
   val collectionNameForChat: String = "Chats"
   val collectionForChat: MongoCollection[Chat] = databaseForChat.getCollection(collectionNameForChat)
+
+  val collectionNameForGroupChat: String = "GroupChat"
+  val collectionForGroupChat: MongoCollection[Chat] =databaseForChat.getCollection(collectionNameForGroupChat)
+
+  val databaseForGroup: MongoDatabase = mongoClient.getDatabase(databaseName).withCodecRegistry(codecRegistryForGroup)
+  val collectionNameForGroup: String = "Groups"
+  val collectionForGroup: MongoCollection[Group] = databaseForGroup.getCollection(collectionNameForGroup)
 }
